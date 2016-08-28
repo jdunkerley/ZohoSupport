@@ -8,12 +8,12 @@ namespace ZohoSupportDownload
     {
         private readonly List<Tuple<string, string>> _fieldsList;
 
-        public ZohoRecord(string portal, string department, ZohoModule module, long id, string uri)
+        public ZohoRecord(string portal, string department, ZohoModule module, long primaryId, string uri)
         {
             this.Portal = portal;
             this.Department = department;
             this.Module = module;
-            this.Id = id;
+            this.PrimaryId = primaryId;
             this.Uri = uri;
 
             this._fieldsList = new List<Tuple<string, string>>();
@@ -25,7 +25,7 @@ namespace ZohoSupportDownload
 
         public ZohoModule Module { get; }
 
-        public long Id { get; }
+        public long PrimaryId { get; }
 
         public string Uri { get; }
 
@@ -47,6 +47,27 @@ namespace ZohoSupportDownload
         {
             get
             {
+                if (name == nameof(this.Portal))
+                {
+                    return this.Portal;
+                }
+                if (name == nameof(this.Department))
+                {
+                    return this.Department;
+                }
+                if (name == nameof(this.Module))
+                {
+                    return this.Module.ToString();
+                }
+                if (name == nameof(this.PrimaryId))
+                {
+                    return this.PrimaryId.ToString();
+                }
+                if (name == nameof(this.Uri))
+                {
+                    return this.Uri;
+                }
+
                 return this._fieldsList
                     .Where(t => t.Item1 == name)
                     .Select(t => t.Item2)

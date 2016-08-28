@@ -9,6 +9,7 @@
         Contacts,
         Contracts,
         Products,
-        Tasks
+        Tasks,
+        TimeEntry
     }
 }
