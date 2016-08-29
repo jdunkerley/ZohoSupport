@@ -3,6 +3,7 @@
     using System;
     using System.Collections.Generic;
     using System.Linq;
+    using System.Net;
 
     using Newtonsoft.Json.Linq;
 
@@ -39,88 +40,104 @@
         /// </summary>
         public string Department { get; set; }
 
-        public ICollection<ZohoRecord> GetRecords(ZohoModule module, bool allRecords = false, int fromIndex = 1, string fields = "", int primaryId = -1)
+        public ZohoRecord GetRecord(ZohoModule module, long primaryId, string fields = "")
         {
-            var outputArray = new List<ZohoRecord>();
-            var client = CreateClient(this._baseUrl);
+            var request = this.CreateRequest(module, "api/json/{module}/getrecordsbyid", fields);
+            request.AddParameter("id", primaryId.ToString());
 
+            var recordArray = this.MakeRequest(module, request);
+            return recordArray?.FirstOrDefault();
+        }
+
+        public IEnumerable<ZohoRecord> GetRecords(ZohoModule module, bool allRecords = false, int fromIndex = 1, string fields = "")
+        {
+            Console.Write($"{this.Department} {module} ");
             bool doRequest = true;
             while (doRequest)
             {
                 Console.Write(".");
 
-                string urlPath = (primaryId != -1 ? "api/json/{module}/getrecordsbyid" : "api/json/{module}/getrecords");
-                var request = new RestRequest(urlPath, Method.GET);
-
-                request.AddParameter("portal", this.Portal);
-                request.AddParameter("department", this.Department);
-                request.AddParameter("authtoken", this.ApiKey);
-
-                if (primaryId != -1)
-                {
-                    request.AddParameter("id", primaryId.ToString());
-                }
-
+                var request = this.CreateRequest(module, "api/json/{module}/getrecords", fields);
                 request.AddParameter("fromindex", fromIndex.ToString());
                 request.AddParameter("toindex", (fromIndex + 199).ToString());
 
-                if (!string.IsNullOrWhiteSpace(fields))
+                var recordArray = this.MakeRequest(module, request);
+                if (recordArray != null)
                 {
-                    request.AddParameter("selectfields", fields);
-                }
-                request.AddUrlSegment("module", module.ToString().ToLowerInvariant());
-
-                IRestResponse response = client.Execute(request);
-
-                LogMessage(response.ResponseUri + " : " + response.StatusCode);
-
-                try
-                {
-                    var json = JObject.Parse(response.Content);
-
-                    var recordArray = this.ParseJsonToRecords(module, json).ToArray();
-                    outputArray.AddRange(recordArray);
-
-                    // Loop Round
-                    if (allRecords && recordArray.Length == 200)
+                    foreach (var zohoRecord in recordArray)
                     {
-                        fromIndex += 200;
-                    }
-                    else
-                    {
-                        doRequest = false;
+                        yield return zohoRecord;
                     }
                 }
-                catch (Exception ex)
+
+                // Loop Round
+                if (allRecords && (recordArray?.Length ?? 0) == 200)
                 {
-                    LogMessage("Error reading JSON: " + ex.Message + ex.StackTrace);
+                    fromIndex += 200;
+                }
+                else
+                {
                     doRequest = false;
                 }
 
             }
 
             Console.WriteLine();
-            return outputArray;
+        }
+
+        private IRestRequest CreateRequest(ZohoModule module, string urlPath, string fields)
+        {
+            var request = new RestRequest(urlPath, Method.GET);
+
+            request.AddParameter("portal", this.Portal);
+            request.AddParameter("department", this.Department);
+            request.AddParameter("authtoken", this.ApiKey);
+            request.AddUrlSegment("module", module.ToString().ToLowerInvariant());
+
+            if (!string.IsNullOrWhiteSpace(fields))
+            {
+                request.AddParameter("selectfields", fields == "all" ? "all" : $"{module}({fields})");
+            }
+
+            return request;
+        }
+
+        private ZohoRecord[] MakeRequest(ZohoModule module, IRestRequest request)
+        {
+            var client = CreateClient(this._baseUrl);
+
+            IRestResponse response = null;
+
+            int attempt = 0;
+            while (attempt < 3 && (response?.StatusCode != HttpStatusCode.OK))
+            {
+                attempt++;
+                response = client.Execute(request);
+                LogMessage(response.ResponseUri + " : " + response.StatusCode);
+            }
+
+            if (response?.StatusCode != HttpStatusCode.OK)
+            {
+                return null;
+            }
+
+            try
+            {
+                var json = JObject.Parse(response.Content);
+
+                var recordArray = this.ParseJsonToRecords(module, json).ToArray();
+                return recordArray;
+            }
+            catch (Exception ex)
+            {
+                LogMessage("Error reading JSON: " + ex.Message + ex.StackTrace);
+                return null;
+            }
         }
 
         private IEnumerable<ZohoRecord> ParseJsonToRecords(ZohoModule module, JObject json)
         {
-            string idField;
-            switch (module)
-            {
-                case ZohoModule.Requests:
-                    idField = "CASEID";
-                    break;
-                case ZohoModule.TimeEntry:
-                    idField = "TIME_ENTRY_ID";
-                    break;
-                case ZohoModule.Tasks:
-                    idField = "ACTIVITYID";
-                    break;
-                default:
-                    idField = module.ToString().ToUpperInvariant().TrimEnd('S') + "ID";
-                    break;
-            }
+            string idField = module.IdField();
 
             var jsonArray = json["response"]["result"][module == ZohoModule.Requests ? "Cases" : module.ToString()]["row"] as JArray;
             if (jsonArray == null)

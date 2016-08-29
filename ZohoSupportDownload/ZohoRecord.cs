@@ -2,11 +2,39 @@ namespace ZohoSupportDownload
 {
     using System;
     using System.Collections.Generic;
+    using System.Dynamic;
     using System.Linq;
 
     public class ZohoRecord
     {
         private readonly List<Tuple<string, string>> _fieldsList;
+
+        public ZohoRecord(string portal, Dictionary<string, string> serialisedDictionary)
+        {
+            this.Portal = portal;
+            this.Department = serialisedDictionary[nameof(this.Department)];
+            this.Module = (ZohoModule)Enum.Parse(typeof(ZohoModule), serialisedDictionary[nameof(this.Module)]);
+            this.PrimaryId = long.Parse(serialisedDictionary[nameof(this.PrimaryId)]);
+
+            this._fieldsList = new List<Tuple<string, string>>();
+
+            foreach (var keyValuePair in serialisedDictionary)
+            {
+                switch (keyValuePair.Key)
+                {
+                    case nameof(this.Department):
+                    case nameof(this.Module):
+                    case nameof(this.PrimaryId):
+                        break;
+                    case nameof(this.Uri):
+                        this.Uri = keyValuePair.Value;
+                        break;
+                    default:
+                        this.AddField(keyValuePair.Key, keyValuePair.Value);
+                        break;
+                }
+            }
+        }
 
         public ZohoRecord(string portal, string department, ZohoModule module, long primaryId, string uri)
         {
@@ -35,11 +63,29 @@ namespace ZohoSupportDownload
             this._fieldsList.Add(Tuple.Create(name, value));
         }
 
+        public Dictionary<string, string> AsDictionary()
+        {
+            var zohoObject = new Dictionary<string, string>();
+            foreach (var field in this.Fields)
+            {
+                var value = this[field];
+                if (value != null)
+                {
+                    zohoObject[field] = value;
+                }
+            }
+
+            return zohoObject;
+        }
+
         public IEnumerable<string> Fields
         {
             get
             {
-                return this._fieldsList.Select(t => t.Item1);
+                return
+                    new[] { nameof(this.Department), nameof(this.Module), nameof(this.PrimaryId), nameof(this.Uri) }
+                    .Concat(this._fieldsList.Select(t => t.Item1))
+                    .Distinct();
             }
         }
 
