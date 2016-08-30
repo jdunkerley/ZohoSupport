@@ -64,6 +64,13 @@
                 var recordArray = this.MakeRequest(module, request);
                 if (recordArray != null)
                 {
+                    if (recordArray.Length == 1 && recordArray[0].PrimaryId < 0)
+                    {
+                        LogMessage($"Error from Zoho: {-recordArray[0].PrimaryId} - {recordArray[0].Uri}");
+                        doRequest = false;
+                        recordArray = new ZohoRecord[0];
+                    }
+
                     foreach (var zohoRecord in recordArray)
                     {
                         yield return zohoRecord;
@@ -71,15 +78,10 @@
                 }
 
                 // Loop Round
-                if (allRecords && (recordArray?.Length ?? 0) == 200)
+                if (allRecords && doRequest)
                 {
                     fromIndex += 200;
                 }
-                else
-                {
-                    doRequest = false;
-                }
-
             }
 
             Console.WriteLine();
@@ -124,6 +126,19 @@
             try
             {
                 var json = JObject.Parse(response.Content);
+
+                if (json["response"]["error"] != null)
+                {
+                    return new[]
+                               {
+                                   new ZohoRecord(
+                                       this.Portal,
+                                       this.Department,
+                                       module,
+                                       -json["response"]["error"]["code"].Value<long>(),
+                                       json["response"]["error"]["message"].Value<string>())
+                               };
+                }
 
                 var recordArray = this.ParseJsonToRecords(module, json).ToArray();
                 return recordArray;

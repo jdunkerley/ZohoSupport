@@ -62,11 +62,42 @@
 
                 ZohoApi.LogMessage($"Downloading from {_module} : fields {_fields}" + (_id.HasValue ? $"for id {_id}" : string.Empty));
 
-                var current = _output == Mode.JSONAppend ? LoadFromJSON() : new ZohoRecord[0];
+                ZohoRecord[] current;
+                switch (_output)
+                {
+                    case Mode.JSONRewrite:
+                    case Mode.JSONAppend:
+                    case Mode.CSVRewrite:
+                        current = LoadFromJSON($"{_department} {_module}.json");
+                        break;
+                    case Mode.JSONMerge:
+                    case Mode.CSVMerge:
+                        var records = new List<ZohoRecord>();
+                        foreach (var file in Directory.GetFiles(Directory.GetCurrentDirectory(), $"* {_module}.json"))
+                        {
+                            records.AddRange(LoadFromJSON(file));
+                        }
+                        current = records.ToArray();
+                        break;
+                    default:
+                        current = new ZohoRecord[0];
+                        break;
+                }
 
-                var content = !_id.HasValue
-                                  ? zohoClient.GetRecords(_module, true, current.Length + 1, _fields)
-                                  : new[] { zohoClient.GetRecord(_module, _id.Value, _fields) };
+                IEnumerable<ZohoRecord> content;
+                switch (_output)
+                {
+                    case Mode.CSV:
+                    case Mode.JSON:
+                    case Mode.JSONAppend:
+                        content = (!_id.HasValue
+                                       ? zohoClient.GetRecords(_module, true, current.Length + 1, _fields)
+                                       : new[] { zohoClient.GetRecord(_module, _id.Value, _fields) });
+                        break;
+                    default:
+                        content = new ZohoRecord[0];
+                        break;
+                }
 
                 content = current.Concat(content);
 
@@ -75,10 +106,18 @@
                 {
                     case Mode.JSON:
                     case Mode.JSONAppend:
-                        SaveToJson(content);
+                    case Mode.JSONRewrite:
+                        SaveToJson($"{_department} {_module}.json", content);
+                        break;
+                    case Mode.JSONMerge:
+                        SaveToJson($"{_module}.json", content);
                         break;
                     case Mode.CSV:
-                        SaveToCSV(content);
+                    case Mode.CSVRewrite:
+                        SaveToCSV($"{_department} {_module}.csv", content);
+                        break;
+                    case Mode.CSVMerge:
+                        SaveToCSV($"{_module}.csv", content);
                         break;
                 }
 
@@ -89,7 +128,7 @@
             return 0;
         }
 
-        private static void SaveToCSV(IEnumerable<ZohoRecord> content)
+        private static void SaveToCSV(string filename, IEnumerable<ZohoRecord> content)
         {
             var list = content.ToList();
 
@@ -98,8 +137,8 @@
             fields.AddRange(list.SelectMany(r => r.Fields).Distinct());
 
             // Save To CSV
-            ZohoApi.LogMessage($"Writing CSV {_department} {_module}.csv ...");
-            using (var wrt = new StreamWriter($"{_department} {_module}.csv"))
+            ZohoApi.LogMessage($"Writing CSV {filename} ...");
+            using (var wrt = new StreamWriter(filename))
             {
                 wrt.WriteLine(string.Join(",", fields));
                 foreach (var zohoRecord in list)
@@ -133,19 +172,19 @@
             }
         }
 
-        private static ZohoRecord[] LoadFromJSON()
+        private static ZohoRecord[] LoadFromJSON(string fileName)
         {
-            if (!File.Exists($"{_department} {_module}.json"))
+            if (!File.Exists(fileName))
             {
                 return new ZohoRecord[0];
             }
 
 
-            ZohoApi.LogMessage($"Reading JSON {_department} {_module}.json ...");
+            ZohoApi.LogMessage($"Reading JSON {fileName} ...");
 
             var output = new List<ZohoRecord>();
 
-            using (var streamReader = new StreamReader($"{_department} {_module}.json"))
+            using (var streamReader = new StreamReader(fileName))
             {
                 var jsonString = streamReader.ReadToEnd();
                 var jsonParsed = JsonConvert.DeserializeObject<Dictionary<string, string>[]>(jsonString);
@@ -159,12 +198,14 @@
             return output.ToArray();
         }
 
-        private static void SaveToJson(IEnumerable<ZohoRecord> content)
+        private static void SaveToJson(string fileName, IEnumerable<ZohoRecord> content)
         {
             // Save To JSON
-            ZohoApi.LogMessage($"Writing JSON {_department} {_module}.json ...");
-            using (var wrt = new StreamWriter($"{_department} {_module}.json"))
+            ZohoApi.LogMessage($"Writing JSON {fileName} ...");
+            using (var wrt = new StreamWriter(fileName))
             {
+                wrt.AutoFlush = true;
+
                 wrt.WriteLine("[");
                 foreach (var zohoRecord in content)
                 {
@@ -179,7 +220,11 @@
         {
             CSV,
             JSON,
-            JSONAppend
+            JSONAppend,
+            CSVRewrite,
+            JSONRewrite,
+            JSONMerge,
+            CSVMerge
         }
     }
 }

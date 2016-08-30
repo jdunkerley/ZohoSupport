@@ -83,7 +83,7 @@ namespace ZohoSupportDownload
             get
             {
                 return
-                    new[] { nameof(this.Department), nameof(this.Module), nameof(this.PrimaryId), nameof(this.Uri) }
+                    new[] { nameof(this.Portal), nameof(this.Department), nameof(this.Module), nameof(this.PrimaryId), nameof(this.Uri) }
                     .Concat(this._fieldsList.Select(t => t.Item1))
                     .Distinct();
             }
