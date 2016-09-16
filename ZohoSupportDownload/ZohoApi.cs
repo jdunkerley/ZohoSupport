@@ -2,6 +2,7 @@
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.Linq;
     using System.Net;
 
@@ -64,23 +65,16 @@
                 var recordArray = this.MakeRequest(module, request);
                 if (recordArray != null)
                 {
-                    if (recordArray.Length == 1 && recordArray[0].PrimaryId < 0)
-                    {
-                        LogMessage($"Error from Zoho: {-recordArray[0].PrimaryId} - {recordArray[0].Uri}");
-                        doRequest = false;
-                        recordArray = new ZohoRecord[0];
-                    }
-
                     foreach (var zohoRecord in recordArray)
                     {
                         yield return zohoRecord;
                     }
-                }
 
-                // Loop Round
-                if (allRecords && doRequest)
+                    fromIndex += recordArray.Length;
+                }
+                else
                 {
-                    fromIndex += 200;
+                    doRequest = false;
                 }
             }
 
@@ -108,46 +102,47 @@
         {
             var client = CreateClient(this._baseUrl);
 
-            IRestResponse response = null;
-
             int attempt = 0;
-            while (attempt < 3 && (response?.StatusCode != HttpStatusCode.OK))
+            while (attempt < 3)
             {
                 attempt++;
-                response = client.Execute(request);
+                var response = client.Execute(request);
                 LogMessage(response.ResponseUri + " : " + response.StatusCode);
-            }
 
-            if (response?.StatusCode != HttpStatusCode.OK)
-            {
-                return null;
-            }
-
-            try
-            {
-                var json = JObject.Parse(response.Content);
-
-                if (json["response"]["error"] != null)
+                if (response?.StatusCode == HttpStatusCode.OK)
                 {
-                    return new[]
-                               {
-                                   new ZohoRecord(
-                                       this.Portal,
-                                       this.Department,
-                                       module,
-                                       -json["response"]["error"]["code"].Value<long>(),
-                                       json["response"]["error"]["message"].Value<string>())
-                               };
-                }
+                    try
+                    {
+                        var json = JObject.Parse(response.Content);
 
-                var recordArray = this.ParseJsonToRecords(module, json).ToArray();
-                return recordArray;
+                        if (json["response"]["error"] != null)
+                        {
+                            long code = json["response"]["error"]["code"].Value<long>();
+                            string message = json["response"]["error"]["message"].Value<string>();
+
+                            if (message == "There is no data to show")
+                            {
+                                LogMessage($"End of data from Zoho.");
+                                return null;
+                            }
+
+                            LogMessage($"Error from Zoho: {code} - {message}");
+                            continue;
+                        }
+
+
+                        var recordArray = this.ParseJsonToRecords(module, json).ToArray();
+                        return recordArray;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogMessage("Error reading JSON: " + ex.Message + ex.StackTrace);
+                    }
+
+                }
             }
-            catch (Exception ex)
-            {
-                LogMessage("Error reading JSON: " + ex.Message + ex.StackTrace);
-                return null;
-            }
+
+            return null;
         }
 
         private IEnumerable<ZohoRecord> ParseJsonToRecords(ZohoModule module, JObject json)
@@ -179,6 +174,21 @@
                         {
                             content = null;
                         }
+
+                        DateTime parsedDateTime;
+                        if (DateTime.TryParseExact(
+                            content,
+                            "yyyy-MM-dd HH:mm:ss",
+                            DateTimeFormatInfo.CurrentInfo,
+                            DateTimeStyles.AllowWhiteSpaces,
+                            out parsedDateTime))
+                        {
+                            var newTime = TimeZoneInfo.ConvertTimeFromUtc(
+                                parsedDateTime,
+                                TimeZoneInfo.FindSystemTimeZoneById("Pacific Standard Time"));
+                            content = newTime.ToString("yyyy-MM-dd HH:mm:ss");
+                        }
+
 
                         fields[val] = content;
                     }
